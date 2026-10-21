@@ -29,7 +29,7 @@ export class JarvisAIEngine {
       geminiApiKey: config?.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
       nvidiaApiKey: config?.nvidiaApiKey || process.env.NVIDIA_API_KEY || "",
       nebiusApiKey: config?.nebiusApiKey || process.env.NEBIUS_API_KEY || "",
-      geminiModel: config?.geminiModel || process.env.GEMINI_DEFAULT_MODEL || "gemini-2.5-flash",
+      geminiModel: config?.geminiModel || process.env.GEMINI_DEFAULT_MODEL || "gemini-3.5-flash-lite",
       nvidiaModel: config?.nvidiaModel || process.env.NVIDIA_DEFAULT_MODEL || "meta/llama-3.3-70b-instruct",
       nebiusModel: config?.nebiusModel || process.env.NEBIUS_DEFAULT_MODEL || "meta-llama/Llama-3.3-70B-Instruct-fast",
     };
@@ -113,7 +113,7 @@ CORE OPERATIONAL PROTOCOLS:
 
   private async callGemini(messages: ChatMessage[], startTime: number): Promise<InferenceResult> {
     const url = `${process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai"}/chat/completions`;
-    const model = this.config.geminiModel || "gemini-2.5-flash";
+    const model = this.config.geminiModel || "gemini-3.5-flash-lite";
 
     const response = await fetch(url, {
       method: "POST",
