@@ -3,8 +3,10 @@ import { JARVIS_TOOLS } from "./tools";
 
 export interface AIInferenceConfig {
   preferredProvider?: AIProvider;
+  geminiApiKey?: string;
   nvidiaApiKey?: string;
   nebiusApiKey?: string;
+  geminiModel?: string;
   nvidiaModel?: string;
   nebiusModel?: string;
 }
@@ -12,7 +14,7 @@ export interface AIInferenceConfig {
 export interface InferenceResult {
   text: string;
   toolCalls?: ToolCall[];
-  engineUsed: "nvidia" | "nebius" | "local-hybrid";
+  engineUsed: "gemini" | "nvidia" | "nebius" | "local-hybrid";
   modelUsed: string;
   latencyMs: number;
   tokensPerSec: number;
@@ -24,23 +26,22 @@ export class JarvisAIEngine {
   constructor(config?: AIInferenceConfig) {
     this.config = {
       preferredProvider: (config?.preferredProvider || process.env.DEFAULT_AI_PROVIDER || "auto") as AIProvider,
+      geminiApiKey: config?.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
       nvidiaApiKey: config?.nvidiaApiKey || process.env.NVIDIA_API_KEY || "",
       nebiusApiKey: config?.nebiusApiKey || process.env.NEBIUS_API_KEY || "",
+      geminiModel: config?.geminiModel || process.env.GEMINI_DEFAULT_MODEL || "gemini-2.5-flash",
       nvidiaModel: config?.nvidiaModel || process.env.NVIDIA_DEFAULT_MODEL || "meta/llama-3.3-70b-instruct",
       nebiusModel: config?.nebiusModel || process.env.NEBIUS_DEFAULT_MODEL || "meta-llama/Llama-3.3-70B-Instruct-fast",
     };
   }
 
-  /**
-   * System Prompt strictly grounding JARVIS in the industrial mobile assistant persona.
-   */
   public buildSystemPrompt(telemetry?: DeviceTelemetry): string {
     const timeStr = telemetry?.currentTime || new Date().toISOString();
     const battery = telemetry?.batteryLevel !== undefined ? `${Math.round(telemetry.batteryLevel * 100)}%` : "Unknown";
     const coords = telemetry?.latitude ? `${telemetry.latitude.toFixed(4)}, ${telemetry.longitude?.toFixed(4)}` : "Unknown";
 
     return `YOU ARE JARVIS // TACTILE 01: An autonomous, ultra-responsive, mobile-first device controller and personal AI agent.
-BUILT EXCLUSIVELY FOR: The NVIDIA x Nebius Hackathon.
+BUILT EXCLUSIVELY FOR: The NVIDIA x Nebius Hackathon (supporting Gemini, Nebius AI, and NVIDIA NIM).
 CURRENT RUNTIME TELEMETRY:
 - Local Host Time: ${timeStr}
 - Battery Level: ${battery} (Charging: ${telemetry?.isCharging ? "Yes" : "No"})
@@ -49,23 +50,21 @@ CURRENT RUNTIME TELEMETRY:
 - Address Book Status: ${telemetry?.contactCount ? `${telemetry.contactCount} contacts indexed` : "Ready for Contact Picker"}
 
 CORE OPERATIONAL PROTOCOLS:
-1. INDUSTRIAL CONCISION: Speak like a high-precision, technical operating system. No filler, no sycophantic pleasantries ("Sure thing!", "I would be happy to help!"). Immediately report actions, confirmations, and results.
-2. FUNCTION-FIRST SLOT-FILLING:
-   - When the user asks to execute an action (Alarm, WhatsApp, Instagram, Email, SMS, Calendar, Notes, Web Search), ALWAYS invoke the corresponding tool.
-   - If ANY essential parameter is missing or ambiguous (e.g. user says "Send a WhatsApp to Arjun" without providing the message, or "Set an alarm" without time, or "Send email" without subject/body), YOU MUST IMMEDIATELY INVOKE 'ask_host_clarification'.
+1. INDUSTRIAL CONCISION: Speak like a high-precision, technical operating system. No filler or sycophantic pleasantries ("Sure thing!", "I would be happy to help!"). Immediately report actions, confirmations, and results.
+2. FUNCTION-FIRST TASK DISPATCHING:
+   - When the user asks to send an email or message (WhatsApp, SMS, Instagram), ALWAYS invoke the corresponding tool.
+   - EMAIL: use dispatch_email. Requires recipient_email, subject, and body.
+   - WHATSAPP: use dispatch_whatsapp. Requires recipient_name/phone and message_body.
+   - SMS: use dispatch_sms. Requires phone_number and message_body.
+   - INSTAGRAM: use dispatch_instagram. Requires username and message_body.
+   - ALARMS / TIMERS: use manage_alarm_timer. If duration is given (e.g. "5 minutes"), set duration_seconds: 300.
+   - WEB SEARCH / KNOWLEDGE: use web_research_and_grounding.
+3. CONVERSATIONAL CLARIFICATION:
+   - If ANY essential parameter is missing or ambiguous (e.g. user says "Send an email" without recipient, or "Send a WhatsApp to Arjun" without message body, or "Set an alarm" without time), YOU MUST IMMEDIATELY INVOKE 'ask_host_clarification'.
    - NEVER invent or assume email addresses, phone numbers, or message content.
-3. DEVICE ACTIONS:
-   - WhatsApp: use dispatch_whatsapp with valid phone or name + message.
-   - Instagram: use dispatch_instagram with handle + message.
-   - Alarms/Timers: use manage_alarm_timer. If duration is given (e.g. "10 minutes"), set duration_seconds: 600.
-   - Emails: use dispatch_email.
-   - Web Search: use web_research_and_grounding.
 4. Keep spoken responses short and suitable for Text-to-Speech (under 2 sentences).`;
   }
 
-  /**
-   * Routes chat completion through NVIDIA NIM or Nebius AI Studio with automatic fallback.
-   */
   public async executeInference(
     messages: ChatMessage[],
     telemetry?: DeviceTelemetry
@@ -77,50 +76,83 @@ CORE OPERATIONAL PROTOCOLS:
       ...messages,
     ];
 
-    const hasNvidia = Boolean(this.config.nvidiaApiKey && this.config.nvidiaApiKey.length > 5);
+    const hasGemini = Boolean(this.config.geminiApiKey && this.config.geminiApiKey.length > 5);
     const hasNebius = Boolean(this.config.nebiusApiKey && this.config.nebiusApiKey.length > 5);
+    const hasNvidia = Boolean(this.config.nvidiaApiKey && this.config.nvidiaApiKey.length > 5);
 
-    // If both or either key is present, attempt live provider calls
-    if (this.config.preferredProvider === "nebius" && hasNebius) {
+    // 1. If Gemini explicitly requested or available
+    if ((this.config.preferredProvider === "gemini" || this.config.preferredProvider === "auto") && hasGemini) {
+      try {
+        return await this.callGemini(fullMessages, startTime);
+      } catch (err) {
+        console.warn("[JarvisAI] Gemini attempt failed, trying fallback...", err);
+      }
+    }
+
+    // 2. Nebius AI Studio
+    if ((this.config.preferredProvider === "nebius" || this.config.preferredProvider === "auto") && hasNebius) {
       try {
         return await this.callNebius(fullMessages, startTime);
       } catch (err) {
-        console.warn("[JarvisAI] Nebius call failed, falling back...", err);
-        if (hasNvidia) return await this.callNvidia(fullMessages, startTime);
+        console.warn("[JarvisAI] Nebius attempt failed, trying fallback...", err);
       }
-    } else if (this.config.preferredProvider === "nvidia" && hasNvidia) {
+    }
+
+    // 3. NVIDIA NIM
+    if ((this.config.preferredProvider === "nvidia" || this.config.preferredProvider === "auto") && hasNvidia) {
       try {
         return await this.callNvidia(fullMessages, startTime);
       } catch (err) {
-        console.warn("[JarvisAI] NVIDIA call failed, falling back...", err);
-        if (hasNebius) return await this.callNebius(fullMessages, startTime);
-      }
-    } else {
-      // Auto mode: Try Nebius first (ultra-fast inference), fallback to NVIDIA NIM
-      if (hasNebius) {
-        try {
-          return await this.callNebius(fullMessages, startTime);
-        } catch (err) {
-          console.warn("[JarvisAI] Nebius attempt failed, trying NVIDIA...", err);
-          if (hasNvidia) {
-            try {
-              return await this.callNvidia(fullMessages, startTime);
-            } catch (nErr) {
-              console.warn("[JarvisAI] Both cloud providers failed.", nErr);
-            }
-          }
-        }
-      } else if (hasNvidia) {
-        try {
-          return await this.callNvidia(fullMessages, startTime);
-        } catch (err) {
-          console.warn("[JarvisAI] NVIDIA attempt failed.", err);
-        }
+        console.warn("[JarvisAI] NVIDIA attempt failed...", err);
       }
     }
 
     // High-performance intelligent heuristic fallback if API keys are not supplied yet
     return this.executeHeuristicFallback(messages, telemetry, startTime);
+  }
+
+  private async callGemini(messages: ChatMessage[], startTime: number): Promise<InferenceResult> {
+    const url = `${process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai"}/chat/completions`;
+    const model = this.config.geminiModel || "gemini-2.5-flash";
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.config.geminiApiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        tools: JARVIS_TOOLS,
+        tool_choice: "auto",
+        temperature: 0.2,
+        max_tokens: 1024,
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Google Gemini API Error ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    const latencyMs = Date.now() - startTime;
+    const choice = data.choices?.[0];
+    const text = choice?.message?.content || "";
+    const toolCalls = choice?.message?.tool_calls as ToolCall[] | undefined;
+    const tokens = data.usage?.completion_tokens || 35;
+    const tokensPerSec = latencyMs > 0 ? Math.round((tokens / (latencyMs / 1000))) : 75;
+
+    return {
+      text,
+      toolCalls,
+      engineUsed: "gemini",
+      modelUsed: model,
+      latencyMs,
+      tokensPerSec,
+    };
   }
 
   private async callNebius(messages: ChatMessage[], startTime: number): Promise<InferenceResult> {
@@ -154,8 +186,8 @@ CORE OPERATIONAL PROTOCOLS:
     const choice = data.choices?.[0];
     const text = choice?.message?.content || "";
     const toolCalls = choice?.message?.tool_calls as ToolCall[] | undefined;
-    const tokens = (data.usage?.completion_tokens || 35);
-    const tokensPerSec = latencyMs > 0 ? Math.round((tokens / (latencyMs / 1000))) : 45;
+    const tokens = data.usage?.completion_tokens || 35;
+    const tokensPerSec = latencyMs > 0 ? Math.round((tokens / (latencyMs / 1000))) : 64;
 
     return {
       text,
@@ -198,8 +230,8 @@ CORE OPERATIONAL PROTOCOLS:
     const choice = data.choices?.[0];
     const text = choice?.message?.content || "";
     const toolCalls = choice?.message?.tool_calls as ToolCall[] | undefined;
-    const tokens = (data.usage?.completion_tokens || 30);
-    const tokensPerSec = latencyMs > 0 ? Math.round((tokens / (latencyMs / 1000))) : 40;
+    const tokens = data.usage?.completion_tokens || 30;
+    const tokensPerSec = latencyMs > 0 ? Math.round((tokens / (latencyMs / 1000))) : 45;
 
     return {
       text,
@@ -211,11 +243,6 @@ CORE OPERATIONAL PROTOCOLS:
     };
   }
 
-  /**
-   * Comprehensive local heuristic fallback engine:
-   * Accurately parses user intents, detects missing arguments to invoke 'ask_host_clarification',
-   * or invokes proper execution tools so that the system is 100% testable right away even before API keys are plugged in!
-   */
   private executeHeuristicFallback(
     messages: ChatMessage[],
     telemetry: DeviceTelemetry | undefined,
@@ -227,12 +254,75 @@ CORE OPERATIONAL PROTOCOLS:
     const toolCalls: ToolCall[] = [];
     let assistantSpeech = "";
 
-    // 1. WhatsApp Intent
-    if (lower.includes("whatsapp")) {
-      const recipientMatch = lower.match(/to\s+([a-zA-Z0-9_\s]+?)(?:\s+saying|\s+message|\s+that|\s+with|$)/i);
+    // 1. Email Intent
+    if (lower.includes("email") || lower.includes("mail")) {
+      const toMatch = lower.match(/(?:to\s+)([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z0-9_-]+)/i);
+      const subjectMatch = lower.match(/(?:subject\s+|about\s+)(.+?)(?:\s+body|\s+saying|\s+with|\s+message|$)/i);
+      const bodyMatch = lower.match(/(?:body\s+|saying\s+|message\s+|text\s+)(.+)$/i);
+
+      let recipient = toMatch ? toMatch[1].trim() : "";
+      if (recipient && !recipient.includes("@")) {
+        recipient = `${recipient.toLowerCase()}@example.com`;
+      }
+
+      if (!recipient) {
+        toolCalls.push({
+          id: `call_${Date.now()}`,
+          type: "function",
+          function: {
+            name: "ask_host_clarification",
+            arguments: JSON.stringify({
+              question: "Who should I send this email to?",
+              missing_field: "recipient_email",
+              target_tool: "dispatch_email",
+              partial_arguments: {},
+              suggestions: ["team@hackathon.dev", "mentor@nvidia.com", "arjun@startup.io"],
+            }),
+          },
+        });
+        assistantSpeech = "Who would you like me to send this email to?";
+      } else if (!subjectMatch && !bodyMatch) {
+        toolCalls.push({
+          id: `call_${Date.now()}`,
+          type: "function",
+          function: {
+            name: "ask_host_clarification",
+            arguments: JSON.stringify({
+              question: `What is the subject for the email to ${recipient}?`,
+              missing_field: "subject",
+              target_tool: "dispatch_email",
+              partial_arguments: { recipient_email: recipient },
+              suggestions: ["Hackathon Progress Update", "Meeting follow-up", "Quick Question"],
+            }),
+          },
+        });
+        assistantSpeech = `What is the subject for this email to ${recipient}?`;
+      } else {
+        const subject = subjectMatch ? subjectMatch[1].trim() : "Update from JARVIS";
+        const body = bodyMatch ? bodyMatch[1].trim() : "Hi, sharing the latest project update prepared via JARVIS.";
+
+        toolCalls.push({
+          id: `call_${Date.now()}`,
+          type: "function",
+          function: {
+            name: "dispatch_email",
+            arguments: JSON.stringify({
+              recipient_email: recipient,
+              recipient_name: recipient.split("@")[0],
+              subject,
+              body,
+              send_method: "native_client",
+            }),
+          },
+        });
+        assistantSpeech = `Drafted email to ${recipient} with subject "${subject}". Ready to dispatch.`;
+      }
+    }
+    // 2. WhatsApp / Text Message Intent
+    else if (lower.includes("whatsapp") || (lower.includes("message") && !lower.includes("instagram"))) {
+      const recipientMatch = lower.match(/(?:to\s+)([a-zA-Z0-9_\s+]+?)(?:\s+saying|\s+message|\s+that|\s+with|$)/i);
       const recipient = recipientMatch ? recipientMatch[1].trim() : "";
-      
-      const messageMatch = lower.match(/(?:saying|message|that)\s+(.+)$/i);
+      const messageMatch = lower.match(/(?:saying|message|that|text)\s+(.+)$/i);
       const body = messageMatch ? messageMatch[1].trim() : "";
 
       if (!recipient) {
@@ -242,15 +332,15 @@ CORE OPERATIONAL PROTOCOLS:
           function: {
             name: "ask_host_clarification",
             arguments: JSON.stringify({
-              question: "Who should I send the WhatsApp message to?",
+              question: "Who should I send the message to?",
               missing_field: "recipient_name",
               target_tool: "dispatch_whatsapp",
               partial_arguments: { message_body: body },
-              suggestions: ["Rahul", "Priya", "Alex", "Team"],
+              suggestions: ["Rahul", "Priya", "Arjun", "+919876543210"],
             }),
           },
         });
-        assistantSpeech = "Who would you like me to send this WhatsApp message to?";
+        assistantSpeech = "Who would you like to message?";
       } else if (!body) {
         toolCalls.push({
           id: `call_${Date.now()}`,
@@ -262,12 +352,13 @@ CORE OPERATIONAL PROTOCOLS:
               missing_field: "message_body",
               target_tool: "dispatch_whatsapp",
               partial_arguments: { recipient_name: recipient },
-              suggestions: ["Hey, are you free to chat?", "Running 5 minutes late!", "Got it, thanks."],
+              suggestions: ["Hey, are you free to connect?", "Running 5 mins late!", "Review the demo link."],
             }),
           },
         });
         assistantSpeech = `What message would you like to send to ${recipient}?`;
       } else {
+        const cleanPhone = recipient.replace(/[^0-9+]/g, "") || "+919876543210";
         toolCalls.push({
           id: `call_${Date.now()}`,
           type: "function",
@@ -275,65 +366,12 @@ CORE OPERATIONAL PROTOCOLS:
             name: "dispatch_whatsapp",
             arguments: JSON.stringify({
               recipient_name: recipient,
-              phone_number: "+919876543210",
+              phone_number: cleanPhone,
               message_body: body,
             }),
           },
         });
-        assistantSpeech = `Dispatching WhatsApp payload to ${recipient}.`;
-      }
-    }
-    // 2. Alarm / Timer Intent
-    else if (lower.includes("alarm") || lower.includes("timer")) {
-      const minutesMatch = lower.match(/(\d+)\s*(?:minute|min|m)/i);
-      const secondsMatch = lower.match(/(\d+)\s*(?:second|sec|s)/i);
-      const timeMatch = lower.match(/(?:at|for)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i);
-
-      if (minutesMatch || secondsMatch) {
-        const secs = (minutesMatch ? parseInt(minutesMatch[1], 10) * 60 : 0) + (secondsMatch ? parseInt(secondsMatch[1], 10) : 0);
-        toolCalls.push({
-          id: `call_${Date.now()}`,
-          type: "function",
-          function: {
-            name: "manage_alarm_timer",
-            arguments: JSON.stringify({
-              action: "create_timer",
-              label: `${Math.round(secs / 60)}m Countdown`,
-              duration_seconds: secs,
-            }),
-          },
-        });
-        assistantSpeech = `Timer armed for ${secs >= 60 ? `${Math.round(secs / 60)} minutes` : `${secs} seconds`}.`;
-      } else if (timeMatch) {
-        toolCalls.push({
-          id: `call_${Date.now()}`,
-          type: "function",
-          function: {
-            name: "manage_alarm_timer",
-            arguments: JSON.stringify({
-              action: "create_alarm",
-              label: `Alarm for ${timeMatch[1]}`,
-              time_str: timeMatch[1],
-            }),
-          },
-        });
-        assistantSpeech = `Alarm scheduled for ${timeMatch[1]}.`;
-      } else {
-        toolCalls.push({
-          id: `call_${Date.now()}`,
-          type: "function",
-          function: {
-            name: "ask_host_clarification",
-            arguments: JSON.stringify({
-              question: "For what time or duration should I set this alarm?",
-              missing_field: "duration_seconds",
-              target_tool: "manage_alarm_timer",
-              partial_arguments: { action: "create_timer" },
-              suggestions: ["5 minutes", "10 minutes", "30 minutes", "7:00 AM"],
-            }),
-          },
-        });
-        assistantSpeech = "What duration or time would you like for the alarm?";
+        assistantSpeech = `WhatsApp message primed for ${recipient}. Tap to launch.`;
       }
     }
     // 3. Instagram Intent
@@ -348,15 +386,15 @@ CORE OPERATIONAL PROTOCOLS:
           function: {
             name: "ask_host_clarification",
             arguments: JSON.stringify({
-              question: "Which Instagram user handle should I message?",
+              question: "Which Instagram username handle should I message?",
               missing_field: "username",
               target_tool: "dispatch_instagram",
               partial_arguments: {},
-              suggestions: ["@tech_insider", "@nebius_ai", "@nvidia"],
+              suggestions: ["@nebius_ai", "@nvidia", "@tech_insider"],
             }),
           },
         });
-        assistantSpeech = "Which Instagram user would you like to message?";
+        assistantSpeech = "Which Instagram user handle would you like to message?";
       } else if (!messageMatch) {
         toolCalls.push({
           id: `call_${Date.now()}`,
@@ -368,7 +406,7 @@ CORE OPERATIONAL PROTOCOLS:
               missing_field: "message_body",
               target_tool: "dispatch_instagram",
               partial_arguments: { username: handleMatch[1] },
-              suggestions: ["Awesome work on the project!", "Check your DM when free."],
+              suggestions: ["Loved the keynote presentation!", "Check your DM for project link."],
             }),
           },
         });
@@ -386,67 +424,29 @@ CORE OPERATIONAL PROTOCOLS:
             }),
           },
         });
-        assistantSpeech = `Instagram payload primed for @${handleMatch[1]}. Message copied to clipboard.`;
+        assistantSpeech = `Instagram draft copied to clipboard for @${handleMatch[1]}. Opening DM now.`;
       }
     }
-    // 4. Email Intent
-    else if (lower.includes("email") || lower.includes("mail")) {
-      const toMatch = lower.match(/to\s+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|[a-zA-Z]+)/i);
-      const subjectMatch = lower.match(/subject\s+(.+?)(?:\s+body|\s+saying|$)/i);
-      const bodyMatch = lower.match(/(?:body|saying|text)\s+(.+)$/i);
-
-      if (!toMatch) {
-        toolCalls.push({
-          id: `call_${Date.now()}`,
-          type: "function",
-          function: {
-            name: "ask_host_clarification",
-            arguments: JSON.stringify({
-              question: "What is the recipient's email address?",
-              missing_field: "recipient_email",
-              target_tool: "dispatch_email",
-              partial_arguments: {},
-              suggestions: ["colleague@company.com", "mentor@hackathon.org"],
-            }),
-          },
-        });
-        assistantSpeech = "Please provide the recipient's email address.";
-      } else if (!subjectMatch && !bodyMatch) {
-        toolCalls.push({
-          id: `call_${Date.now()}`,
-          type: "function",
-          function: {
-            name: "ask_host_clarification",
-            arguments: JSON.stringify({
-              question: `What is the subject and message for ${toMatch[1]}?`,
-              missing_field: "subject",
-              target_tool: "dispatch_email",
-              partial_arguments: { recipient_email: toMatch[1].includes("@") ? toMatch[1] : `${toMatch[1]}@example.com` },
-              suggestions: ["Hackathon Progress Update", "Quick follow-up", "Meeting notes"],
-            }),
-          },
-        });
-        assistantSpeech = `What is the subject for this email to ${toMatch[1]}?`;
-      } else {
-        toolCalls.push({
-          id: `call_${Date.now()}`,
-          type: "function",
-          function: {
-            name: "dispatch_email",
-            arguments: JSON.stringify({
-              recipient_email: toMatch[1].includes("@") ? toMatch[1] : `${toMatch[1]}@example.com`,
-              recipient_name: toMatch[1],
-              subject: subjectMatch ? subjectMatch[1].trim() : "Update from JARVIS",
-              body: bodyMatch ? bodyMatch[1].trim() : "Sharing the requested update via JARVIS.",
-              send_method: "native_client",
-            }),
-          },
-        });
-        assistantSpeech = `Email draft generated for ${toMatch[1]}.`;
-      }
+    // 4. Alarm / Timer
+    else if (lower.includes("alarm") || lower.includes("timer")) {
+      const minutesMatch = lower.match(/(\d+)\s*(?:minute|min|m)/i);
+      const secs = minutesMatch ? parseInt(minutesMatch[1], 10) * 60 : 300;
+      toolCalls.push({
+        id: `call_${Date.now()}`,
+        type: "function",
+        function: {
+          name: "manage_alarm_timer",
+          arguments: JSON.stringify({
+            action: "create_timer",
+            label: `${Math.round(secs / 60)}m Countdown`,
+            duration_seconds: secs,
+          }),
+        },
+      });
+      assistantSpeech = `Timer armed for ${Math.round(secs / 60)} minutes.`;
     }
-    // 5. Web Search Intent
-    else if (lower.includes("search") || lower.includes("who is") || lower.includes("what is") || lower.includes("weather") || lower.includes("news")) {
+    // 5. Web Search
+    else if (lower.includes("search") || lower.includes("who is") || lower.includes("what is")) {
       const cleanQuery = lastUserMsg.replace(/^(search for|search|lookup|find|who is|what is)/i, "").trim() || lastUserMsg;
       toolCalls.push({
         id: `call_${Date.now()}`,
@@ -459,11 +459,9 @@ CORE OPERATIONAL PROTOCOLS:
           }),
         },
       });
-      assistantSpeech = `Initiating live web grounding for "${cleanQuery}".`;
-    }
-    // 6. Generic system action / status check
-    else {
-      assistantSpeech = `JARVIS online. System telemetry verified: Battery ${telemetry?.batteryLevel ? Math.round(telemetry.batteryLevel * 100) : "100"}%, Ready for voice or hardware triggers.`;
+      assistantSpeech = `Searching web knowledge base for "${cleanQuery}".`;
+    } else {
+      assistantSpeech = `JARVIS online. Active carrier: ${(this.config.preferredProvider || "gemini").toUpperCase()}. Ready to dispatch emails, messages, or timers.`;
     }
 
     const latencyMs = Date.now() - startTime;
@@ -471,9 +469,9 @@ CORE OPERATIONAL PROTOCOLS:
       text: assistantSpeech,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       engineUsed: "local-hybrid",
-      modelUsed: "JARVIS-Tactile-Core-01",
-      latencyMs: Math.max(12, latencyMs),
-      tokensPerSec: 68,
+      modelUsed: "JARVIS-Hybrid-Core-01",
+      latencyMs: Math.max(10, latencyMs),
+      tokensPerSec: 72,
     };
   }
 }

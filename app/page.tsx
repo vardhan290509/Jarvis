@@ -13,11 +13,12 @@ import { Battery, BatteryCharging, Radio, Sliders, Cpu } from "lucide-react";
 
 export default function JarvisApp() {
   // AI & Engine state
-  const [preferredProvider, setPreferredProvider] = useState<AIProvider>("auto");
-  const [engineUsed, setEngineUsed] = useState<"nvidia" | "nebius" | "local-hybrid">("nebius");
-  const [modelName, setModelName] = useState<string>("meta-llama/Llama-3.3-70B-Instruct-fast");
+  const [preferredProvider, setPreferredProvider] = useState<AIProvider>("gemini");
+  const [engineUsed, setEngineUsed] = useState<"gemini" | "nvidia" | "nebius" | "local-hybrid">("gemini");
+  const [modelName, setModelName] = useState<string>("gemini-2.5-flash");
   const [latencyMs, setLatencyMs] = useState<number>(14);
-  const [tokensPerSec, setTokensPerSec] = useState<number>(68);
+  const [tokensPerSec, setTokensPerSec] = useState<number>(75);
+  const [geminiApiKey, setGeminiApiKey] = useState<string>("");
   const [nvidiaApiKey, setNvidiaApiKey] = useState<string>("");
   const [nebiusApiKey, setNebiusApiKey] = useState<string>("");
 
@@ -60,9 +61,11 @@ export default function JarvisApp() {
   // 1. Initial Setup & Web Hardware Bindings
   useEffect(() => {
     // Load stored keys
+    const savedGemini = localStorage.getItem("jarvis_gemini_key");
     const savedNvidia = localStorage.getItem("jarvis_nvidia_key");
     const savedNebius = localStorage.getItem("jarvis_nebius_key");
     const savedProv = localStorage.getItem("jarvis_preferred_provider") as AIProvider;
+    if (savedGemini) setGeminiApiKey(savedGemini);
     if (savedNvidia) setNvidiaApiKey(savedNvidia);
     if (savedNebius) setNebiusApiKey(savedNebius);
     if (savedProv) setPreferredProvider(savedProv);
@@ -206,6 +209,7 @@ export default function JarvisApp() {
           headers: {
             "Content-Type": "application/json",
             "x-preferred-provider": preferredProvider,
+            ...(geminiApiKey ? { "x-gemini-key": geminiApiKey } : {}),
             ...(nvidiaApiKey ? { "x-nvidia-key": nvidiaApiKey } : {}),
             ...(nebiusApiKey ? { "x-nebius-key": nebiusApiKey } : {}),
           },
@@ -213,6 +217,7 @@ export default function JarvisApp() {
             messages: updatedMessages,
             telemetry,
             provider: preferredProvider,
+            geminiApiKey,
           }),
         });
 
@@ -461,6 +466,11 @@ export default function JarvisApp() {
           setPreferredProvider(p);
           localStorage.setItem("jarvis_preferred_provider", p);
         }}
+        geminiApiKey={geminiApiKey}
+        onSaveGeminiKey={(k) => {
+          setGeminiApiKey(k);
+          localStorage.setItem("jarvis_gemini_key", k);
+        }}
         nvidiaApiKey={nvidiaApiKey}
         onSaveNvidiaKey={(k) => {
           setNvidiaApiKey(k);
@@ -503,7 +513,7 @@ export default function JarvisApp() {
             }`}
           />
           <span className="font-bold tracking-tight uppercase text-[11px]">
-            {engineUsed === "nebius" ? "NEBIUS AI" : engineUsed === "nvidia" ? "NVIDIA NIM" : "TACTILE 01"}
+            {engineUsed === "gemini" ? "GEMINI FLASH" : engineUsed === "nebius" ? "NEBIUS AI" : engineUsed === "nvidia" ? "NVIDIA NIM" : "TACTILE 01"}
           </span>
           <span className="text-[9px] text-industrial-carbon/60 hidden xs:inline truncate max-w-[120px]">
             {modelName.split("/").pop()}

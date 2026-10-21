@@ -66,6 +66,18 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      case "dispatch_message": {
+        const { channel, recipient, body } = payload || {};
+        return NextResponse.json({
+          success: true,
+          channel: channel || "whatsapp",
+          recipient,
+          body,
+          deliveredAt: new Date().toISOString(),
+          status: "dispatched",
+        });
+      }
+
       case "generate_ics": {
         const title = payload.title || "JARVIS Event";
         const desc = payload.description || "";

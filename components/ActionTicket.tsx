@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { soundFX } from "@/lib/sound-effects";
 import { TaskReceipt } from "@/lib/types";
-import { ArrowUpRight, Copy, Check, X, Clock, MessageSquare, Send, Globe, Calculator } from "lucide-react";
+import { ArrowUpRight, Copy, Check, X, Clock, MessageSquare, Send, Globe, Calculator, ExternalLink } from "lucide-react";
 
 interface ActionTicketProps {
   receipt: TaskReceipt;
@@ -57,6 +57,30 @@ export const ActionTicket: React.FC<ActionTicketProps> = ({
         return <Calculator className="w-3.5 h-3.5 text-industrial-orange" />;
     }
   };
+
+  const getButtonLabel = (tool: string) => {
+    switch (tool) {
+      case "dispatch_email":
+        return "LAUNCH EMAIL APP";
+      case "dispatch_whatsapp":
+        return "OPEN WHATSAPP";
+      case "dispatch_sms":
+        return "OPEN SMS APP";
+      case "dispatch_instagram":
+        return "OPEN INSTAGRAM";
+      case "manage_alarm_timer":
+        return "ARM DEVICE ALARM";
+      default:
+        return "DISPATCH TO PHONE";
+    }
+  };
+
+  // Text body to copy for messages/emails
+  const textToCopy =
+    receipt.parameters.message_body ||
+    receipt.parameters.body ||
+    receipt.clientAction?.data?.copyText ||
+    receipt.summary;
 
   return (
     <div className="w-full bg-industrial-bone border-2 border-industrial-carbon rounded-sm shadow-tactile-lg overflow-hidden animate-in slide-in-from-bottom-2 duration-150 select-none">
@@ -146,7 +170,7 @@ export const ActionTicket: React.FC<ActionTicketProps> = ({
 
         {/* Execution Receipts Telemetry */}
         <div className="flex items-center justify-between text-[8px] text-industrial-carbon/60 border-t border-dashed border-industrial-carbon/30 pt-1.5">
-          <span>ROUTED: {receipt.engineUsed.toUpperCase()}</span>
+          <span>CARRIER: {receipt.engineUsed.toUpperCase()}</span>
           <span>LATENCY: {receipt.executionMs || 12}MS</span>
           <span>{new Date(receipt.timestamp).toLocaleTimeString()}</span>
         </div>
@@ -162,17 +186,36 @@ export const ActionTicket: React.FC<ActionTicketProps> = ({
               className="flex-1 bg-industrial-orange hover:bg-industrial-orange/90 text-industrial-bone font-mono font-bold text-xs py-2 px-3 border border-industrial-carbon rounded-xs shadow-tactile active:translate-y-0.5 active:shadow-tactile-press flex items-center justify-center gap-1.5 transition-all"
             >
               <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>DISPATCH TO PHONE</span>
+              <span>{getButtonLabel(receipt.tool)}</span>
             </button>
           )}
 
-          {receipt.clientAction?.data?.copyText && (
+          {/* Copy Text Button */}
+          {textToCopy && (
             <button
-              onClick={() => handleCopy(receipt.clientAction?.data?.copyText)}
+              onClick={() => handleCopy(textToCopy)}
               className="bg-industrial-bone hover:bg-industrial-stone text-industrial-carbon font-mono font-bold text-xs py-2 px-2.5 border border-industrial-carbon rounded-xs shadow-tactile active:translate-y-0.5 active:shadow-tactile-press flex items-center gap-1 transition-all"
+              title="Copy message or email body to clipboard"
             >
               {copied ? <Check className="w-3 h-3 text-industrial-moss" /> : <Copy className="w-3 h-3" />}
-              <span className="text-[10px]">{copied ? "COPIED" : "CLIPBOARD"}</span>
+              <span className="text-[10px]">{copied ? "COPIED" : "COPY TEXT"}</span>
+            </button>
+          )}
+
+          {/* Web WhatsApp Fallback button if WhatsApp */}
+          {receipt.tool === "dispatch_whatsapp" && (
+            <button
+              onClick={() => {
+                const phone = (receipt.parameters.phone_number || "").replace(/[^0-9]/g, "");
+                const msg = encodeURIComponent(receipt.parameters.message_body || "");
+                window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${msg}`, "_blank");
+                soundFX.playRelay(true);
+              }}
+              className="bg-industrial-stone hover:bg-industrial-bone text-industrial-carbon font-mono font-bold text-xs py-2 px-2 border border-industrial-carbon rounded-xs shadow-tactile-sm active:translate-y-0.5 flex items-center gap-1"
+              title="Open in WhatsApp Web"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span className="text-[9px]">WEB WA</span>
             </button>
           )}
         </div>

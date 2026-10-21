@@ -1,6 +1,6 @@
 // Type definitions for JARVIS Tactile AI Assistant //
 
-export type AIProvider = "auto" | "nvidia" | "nebius";
+export type AIProvider = "auto" | "gemini" | "nebius" | "nvidia";
 
 export interface DeviceTelemetry {
   batteryLevel?: number; // 0 to 1
@@ -72,7 +72,7 @@ export interface TaskReceipt {
   };
   timestamp: number;
   executionMs?: number;
-  engineUsed: "nvidia" | "nebius" | "local-hybrid";
+  engineUsed: "gemini" | "nvidia" | "nebius" | "local-hybrid";
   modelUsed: string;
 }
 

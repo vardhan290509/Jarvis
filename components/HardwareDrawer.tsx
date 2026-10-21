@@ -18,7 +18,7 @@ import {
   CheckCircle2,
   RefreshCw,
   X,
-  History,
+  Sparkles,
 } from "lucide-react";
 
 interface HardwareDrawerProps {
@@ -26,6 +26,8 @@ interface HardwareDrawerProps {
   onClose: () => void;
   preferredProvider: AIProvider;
   onSelectProvider: (p: AIProvider) => void;
+  geminiApiKey: string;
+  onSaveGeminiKey: (k: string) => void;
   nvidiaApiKey: string;
   onSaveNvidiaKey: (k: string) => void;
   nebiusApiKey: string;
@@ -41,6 +43,8 @@ export const HardwareDrawer: React.FC<HardwareDrawerProps> = ({
   onClose,
   preferredProvider,
   onSelectProvider,
+  geminiApiKey,
+  onSaveGeminiKey,
   nvidiaApiKey,
   onSaveNvidiaKey,
   nebiusApiKey,
@@ -50,12 +54,17 @@ export const HardwareDrawer: React.FC<HardwareDrawerProps> = ({
   receipts,
   onClearHistory,
 }) => {
-  const [activeTab, setActiveTab] = useState<"calibration" | "engine" | "history">("engine");
+  const [activeTab, setActiveTab] = useState<"engine" | "calibration" | "history">("engine");
+  const [localGeminiKey, setLocalGeminiKey] = useState(geminiApiKey);
   const [localNvidiaKey, setLocalNvidiaKey] = useState(nvidiaApiKey);
   const [localNebiusKey, setLocalNebiusKey] = useState(nebiusApiKey);
   const [permissions, setPermissions] = useState<PermissionStatusMap | null>(null);
   const [calibrating, setCalibrating] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalGeminiKey(geminiApiKey);
+  }, [geminiApiKey]);
 
   useEffect(() => {
     setLocalNvidiaKey(nvidiaApiKey);
@@ -74,6 +83,7 @@ export const HardwareDrawer: React.FC<HardwareDrawerProps> = ({
   if (!isOpen) return null;
 
   const handleApplyKeys = () => {
+    onSaveGeminiKey(localGeminiKey.trim());
     onSaveNvidiaKey(localNvidiaKey.trim());
     onSaveNebiusKey(localNebiusKey.trim());
     soundFX.playRelay(true);
@@ -180,26 +190,49 @@ export const HardwareDrawer: React.FC<HardwareDrawerProps> = ({
               <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase text-industrial-carbon/80 flex items-center gap-1">
                   <Cpu className="w-3 h-3 text-industrial-orange" />
-                  <span>INFERENCE ROUTER</span>
+                  <span>ACTIVE INFERENCE ENGINE</span>
                 </label>
-                <div className="grid grid-cols-3 gap-1">
-                  {(["auto", "nebius", "nvidia"] as AIProvider[]).map((p) => (
+                <div className="grid grid-cols-4 gap-1">
+                  {(["gemini", "auto", "nebius", "nvidia"] as AIProvider[]).map((p) => (
                     <button
                       key={p}
                       onClick={() => {
                         soundFX.playRelay(p !== preferredProvider);
                         onSelectProvider(p);
                       }}
-                      className={`py-1.5 text-[9px] font-bold uppercase border border-industrial-carbon rounded-xs ${
+                      className={`py-1.5 text-[8px] font-bold uppercase border border-industrial-carbon rounded-xs ${
                         preferredProvider === p
                           ? "bg-industrial-carbon text-industrial-bone shadow-tactile-press"
                           : "bg-industrial-stone text-industrial-carbon shadow-tactile-sm"
                       }`}
                     >
-                      {p === "auto" ? "AUTO LOAD-BAL" : p === "nebius" ? "NEBIUS AI" : "NVIDIA NIM"}
+                      {p === "gemini" ? "GEMINI" : p === "auto" ? "AUTO" : p === "nebius" ? "NEBIUS" : "NVIDIA"}
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Google Gemini API Key */}
+              <div className="space-y-1 p-2 bg-industrial-stone/70 border border-industrial-carbon rounded-xs">
+                <label className="text-[10px] font-bold uppercase text-industrial-carbon flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-industrial-orange" />
+                    <span>GOOGLE GEMINI API KEY</span>
+                  </div>
+                  {localGeminiKey && (
+                    <span className="text-[8px] text-industrial-moss font-bold">READY</span>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  value={localGeminiKey}
+                  onChange={(e) => setLocalGeminiKey(e.target.value)}
+                  placeholder="Paste Google Gemini API Key (AIzaSy...)..."
+                  className="w-full bg-industrial-bone border border-industrial-carbon p-1.5 text-xs text-industrial-carbon rounded-xs focus:outline-none focus:ring-1 focus:ring-industrial-orange"
+                />
+                <span className="text-[8px] text-industrial-carbon/60 block">
+                  Model: gemini-2.5-flash / gemini-1.5-flash (Fast & Multimodal)
+                </span>
               </div>
 
               {/* Nebius API Key */}
@@ -213,7 +246,7 @@ export const HardwareDrawer: React.FC<HardwareDrawerProps> = ({
                   value={localNebiusKey}
                   onChange={(e) => setLocalNebiusKey(e.target.value)}
                   placeholder="Paste Nebius key (Bearer token)..."
-                  className="w-full bg-industrial-stone border border-industrial-carbon p-2 text-xs text-industrial-carbon rounded-xs focus:outline-none focus:ring-1 focus:ring-industrial-orange"
+                  className="w-full bg-industrial-stone border border-industrial-carbon p-1.5 text-xs text-industrial-carbon rounded-xs focus:outline-none focus:ring-1 focus:ring-industrial-orange"
                 />
                 <span className="text-[8px] text-industrial-carbon/60">
                   Target: https://api.studio.nebius.ai/v1 (Llama-3.3-70B-Instruct-fast)
@@ -231,7 +264,7 @@ export const HardwareDrawer: React.FC<HardwareDrawerProps> = ({
                   value={localNvidiaKey}
                   onChange={(e) => setLocalNvidiaKey(e.target.value)}
                   placeholder="Paste NVIDIA NIM key (nvapi-...)..."
-                  className="w-full bg-industrial-stone border border-industrial-carbon p-2 text-xs text-industrial-carbon rounded-xs focus:outline-none focus:ring-1 focus:ring-industrial-moss"
+                  className="w-full bg-industrial-stone border border-industrial-carbon p-1.5 text-xs text-industrial-carbon rounded-xs focus:outline-none focus:ring-1 focus:ring-industrial-moss"
                 />
                 <span className="text-[8px] text-industrial-carbon/60">
                   Target: https://integrate.api.nvidia.com/v1 (Llama-3.3-70B-Instruct)

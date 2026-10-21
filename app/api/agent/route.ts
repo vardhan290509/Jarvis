@@ -12,11 +12,13 @@ export async function POST(req: NextRequest) {
     const provider: AIProvider = (req.headers.get("x-preferred-provider") as AIProvider) || body.provider || "auto";
 
     // Custom runtime keys passed from frontend Hardware Drawer if available
+    const customGeminiKey = req.headers.get("x-gemini-key") || body.geminiApiKey;
     const customNvidiaKey = req.headers.get("x-nvidia-key") || body.nvidiaApiKey;
     const customNebiusKey = req.headers.get("x-nebius-key") || body.nebiusApiKey;
 
     const engine = new JarvisAIEngine({
       preferredProvider: provider,
+      geminiApiKey: customGeminiKey,
       nvidiaApiKey: customNvidiaKey,
       nebiusApiKey: customNebiusKey,
     });
