@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Space Grotesk", "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", monospace;
+}
+
+/* Force mobile-first 100dvh viewport and crisp 2D industrial look */
+html,
+body {
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  background-color: #F2EFE9;
+  color: #141413;
+  font-family: var(--font-sans);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Custom scrollbars for industrial theme */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #E4DFD7;
+}
+::-webkit-scrollbar-thumb {
+  background: #141413;
+  border-radius: 2px;
+}
+
+/* Tactile button press simulation */
+.tactile-btn {
+  box-shadow: 0 2px 0 0 #141413;
+  transition: all 0.05s ease-in-out;
+}
+.tactile-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 0 #141413;
+}
